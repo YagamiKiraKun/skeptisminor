@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@tailwindcss/postcss": "^4.3.0",
+    "firebase": "^12.14.0",
     "jspdf": "^4.2.1",
     "postcss": "^8.5.15",
     "react": "^19.2.6",

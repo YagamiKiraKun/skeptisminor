@@ -1,37 +1,46 @@
 import React, { useState } from 'react';
+import { db } from './firebase';
+import { collection, addDoc, doc, updateDoc } from 'firebase/firestore'; 
 
-function Koleksi({ koleksiBuku, setKoleksiBuku, isAdmin }) {
+function Koleksi({ koleksiBuku, isAdmin }) {
   // FORM LOCAL STATE UNTUK INPUT DATA BUKU BARU
   const [judul, setJudul] = useState('');
   const [penulis, setPenulis] = useState('');
   const [kategori, setKategori] = useState('Filsafat');
 
-  const handleAddBuku = (e) => {
-    e.preventDefault();
-    if (!judul.trim() || !penulis.trim()) return;
+  // FUNGSI TAMBAH BUKU KE FIREBASE
+  const handleAddBuku = async (e) => {
+  e.preventDefault();
+  console.log("Tombol diklik, mencoba menambah buku..."); // Tambahkan ini
+  
+  if (!judul.trim() || !penulis.trim()) return;
 
-    const newBuku = {
-      id: Date.now(),
+  try {
+    const docRef = await addDoc(collection(db, 'buku'), {
       judul,
       penulis,
       kategori,
       status: 'Tersedia'
-    };
-
-    setKoleksiBuku([newBuku, ...koleksiBuku]); // Lempar ke data array pusat
+    });
+    console.log("Berhasil! ID dokumen:", docRef.id); // Cek ini di Inspect Element > Console
     setJudul('');
     setPenulis('');
-  };
+  } catch (error) {
+    console.error("Error Firebase:", error); // Cek apakah ada error di sini
+  }
+};
 
-  const toggleStatusBuku = (id) => {
+  // FUNGSI UPDATE STATUS BUKU DI FIREBASE
+  const toggleStatusBuku = async (buku) => {
     if (!isAdmin) return;
-    // Mengubah status ketersediaan buku kawan secara bersiklus
-    setKoleksiBuku(koleksiBuku.map(buku => {
-      if (buku.id === id) {
-        return { ...buku, status: buku.status === 'Tersedia' ? 'Sedang Dibaca' : 'Tersedia' };
-      }
-      return buku;
-    }));
+    try {
+      const bukuRef = doc(db, 'buku', buku.id);
+      await updateDoc(bukuRef, { 
+        status: buku.status === 'Tersedia' ? 'Sedang Dibaca' : 'Tersedia' 
+      });
+    } catch (error) {
+      console.error("Gagal update status: ", error);
+    }
   };
 
   return (
@@ -95,9 +104,9 @@ function Koleksi({ koleksiBuku, setKoleksiBuku, isAdmin }) {
               <div className="flex items-center space-x-2">
                 <span className="px-1.5 py-0.5 bg-[#7b1815]/5 border border-[#7b1815]/10 text-[#7b1815] rounded text-[7px] font-black uppercase tracking-wider">{buku.kategori}</span>
                 
-                {/* Badge Status Buku (Bisa diklik Admin untuk toggle status) */}
+                {/* Badge Status Buku */}
                 <span 
-                  onClick={() => toggleStatusBuku(buku.id)}
+                  onClick={() => toggleStatusBuku(buku)}
                   className={`px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-wider border ${
                     buku.status === 'Tersedia' 
                       ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600' 

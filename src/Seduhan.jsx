@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { jsPDF } from 'jspdf';
 import { db } from './firebase';
-import { collection, doc, addDoc, updateDoc, onSnapshot, query, orderBy } from 'firebase/firestore'; 
+import { collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy } from 'firebase/firestore'; 
 
 function Seduhan({ menuItems, setMenuItems, isAdmin }) {
   // === STATE MANAGEMENT ALUR PESANAN ===
@@ -14,7 +14,13 @@ function Seduhan({ menuItems, setMenuItems, isAdmin }) {
   const [allOrders, setAllOrders] = useState([]); 
   const [currentOrder, setCurrentOrder] = useState(null); // Melacak pesanan aktif milik HP INI SAJA
 
-  // 1. CEK MEMORI HP SAAT APLIKASI DIBUKA (Apakah HP ini punya pesanan aktif yang belum selesai?)
+  // === STATE BARU: KELOLA KATALOG (ADMIN) ===
+  const [namaMenuBaru, setNamaMenuBaru] = useState('');
+  const [deskripsiMenuBaru, setDeskripsiMenuBaru] = useState('');
+  const [hargaMenuBaru, setHargaMenuBaru] = useState('');
+  const [isAddingMenu, setIsAddingMenu] = useState(false); // Toggle tampilkan form tambah menu
+
+  // 1. CEK MEMORI HP SAAT APLIKASI DIBUKA
   useEffect(() => {
     const savedOrderId = localStorage.getItem('skeptis_active_order_id');
     
@@ -28,17 +34,14 @@ function Seduhan({ menuItems, setMenuItems, isAdmin }) {
       if (!isAdmin && savedOrderId) {
         const orderSaya = ordersData.find(o => o.id === savedOrderId);
         if (orderSaya) {
-          // Jika statusnya belum selesai, paksa HP ini tetap di halaman Invoice/Tracker
           setCurrentOrder(orderSaya);
           setStep('invoice');
           setCustomerName(orderSaya.customerName);
           setNotes(orderSaya.notes);
           setQuantity(orderSaya.quantity);
-          // Cari data menu di katalog agar pdf tetap aman di-download
           const menuTerpilih = menuItems.find(m => m.name === orderSaya.menuName);
           if (menuTerpilih) setSelectedItem(menuTerpilih);
         } else {
-          // Jika pesanan sudah dihapus admin dari database, bersihkan memori HP
           localStorage.removeItem('skeptis_active_order_id');
         }
       }
@@ -53,6 +56,41 @@ function Seduhan({ menuItems, setMenuItems, isAdmin }) {
     if (item.status === 'Habis') return; 
     setSelectedItem(item);
     setStep('form');
+  };
+
+  // FUNGSI ADMIN: TAMBAH MENU BARU KE FIRESTORE
+  const handleTambahMenu = async (e) => {
+    e.preventDefault();
+    if (!namaMenuBaru.trim() || !hargaMenuBaru) return;
+
+    try {
+      await addDoc(collection(db, 'menu'), {
+        name: namaMenuBaru.trim(),
+        desc: deskripsiMenuBaru.trim() || 'Diseduh dengan penuh perenungan.',
+        price: Number(hargaMenuBaru),
+        status: 'Ready'
+      });
+      // Reset form input
+      setNamaMenuBaru('');
+      setDeskripsiMenuBaru('');
+      setHargaMenuBaru('');
+      setIsAddingMenu(false);
+    } catch (error) {
+      console.error("Gagal menambahkan menu baru:", error);
+    }
+  };
+
+  // FUNGSI ADMIN: HAPUS MENU PERMANEN DARI KATALOG
+  const handleHapusMenu = async (id, namaMenu, e) => {
+    e.stopPropagation(); // Biar gak memicu handleSelectItem
+    const konfirmasi = window.confirm(`Apakah kawan yakin ingin menghapus "${namaMenu}" secara permanen dari katalog seduhan?`);
+    if (!konfirmasi) return;
+
+    try {
+      await deleteDoc(doc(db, 'menu', id));
+    } catch (error) {
+      console.error("Gagal menghapus menu:", error);
+    }
   };
 
   // FUNGSI ADMIN: UBAH STATUS READY / HABIS KATALOG
@@ -81,7 +119,7 @@ function Seduhan({ menuItems, setMenuItems, isAdmin }) {
     }
   };
 
-  // FUNGSI SUBMIT PESANAN BARU LANGSUNG KE FIREBASE (Mengunci ID ke Memori HP)
+  // FUNGSI SUBMIT PESANAN BARU LANGSUNG KE FIREBASE
   const handleFormSubmit = async (e) => {
     e.preventDefault();
     if (!customerName.trim()) return;
@@ -100,10 +138,7 @@ function Seduhan({ menuItems, setMenuItems, isAdmin }) {
     
     try {
       const docRef = await addDoc(collection(db, 'pesanan'), orderData);
-      
-      // KUNCI UTAMA: Titipkan ID pesanan cloud ini ke memori internal browser HP tamu
       localStorage.setItem('skeptis_active_order_id', docRef.id);
-      
       setCurrentOrder({ id: docRef.id, ...orderData });
       setStep('invoice');
     } catch (error) {
@@ -112,7 +147,7 @@ function Seduhan({ menuItems, setMenuItems, isAdmin }) {
     }
   };
 
-  // Real-time tracker khusus untuk meng-update status di HP tamu yang bersangkutan
+  // Real-time tracker khusus untuk meng-update status di HP tamu
   useEffect(() => {
     if (!currentOrder || step !== 'invoice') return;
     
@@ -190,9 +225,8 @@ function Seduhan({ menuItems, setMenuItems, isAdmin }) {
     window.open(`https://wa.me/${nomorWA}?text=${encodeURIComponent(textWA)}`, '_blank');
   };
 
-  // BERSIHKAN TOTAL MEMORI JIKA KLIK PESAN LAGI
   const handleReset = () => {
-    localStorage.removeItem('skeptis_active_order_id'); // Hapus kunci pesanan aktif di HP ini
+    localStorage.removeItem('skeptis_active_order_id'); 
     setStep('menu');
     setSelectedItem(null);
     setCustomerName('');
@@ -207,15 +241,58 @@ function Seduhan({ menuItems, setMenuItems, isAdmin }) {
       {/* 1. LAYER KATALOG MENU UTAMA */}
       {step === 'menu' && (
         <>
-          <div className="w-full bg-white/90 backdrop-blur-sm rounded-[24px] p-5 shadow-[0_8px_25px_rgba(0,0,0,0.02)] space-y-1.5 border border-stone-200/60 select-none">
-            <div className="flex items-center justify-center">
+          <div className="w-full bg-white/90 backdrop-blur-sm rounded-[24px] p-5 shadow-[0_8px_25px_rgba(0,0,0,0.02)] space-y-1.5 border border-stone-200/60 select-none flex justify-between items-center">
+            <div className="flex-1 text-center pl-6">
               <h3 className="font-poppins font-black text-base text-[#7b1815] uppercase tracking-tight">Katalog Seduhan</h3>
+              <p className="text-[10px] text-stone-500 font-medium uppercase tracking-wider mt-0.5">
+                {isAdmin ? "Gunakan kontrol panel untuk memproses katalog." : "Pilih menu, isi detail, dan kirim nota pesananmu."}
+              </p>
             </div>
-            <p className="text-[10px] text-stone-500 text-center font-medium uppercase tracking-wider">
-              {isAdmin ? "Gunakan kontrol panel di bawah untuk memproses pesanan kawan-kawan." : "Pilih menu, isi detail, dan kirim nota pesananmu."}
-            </p>
+            {/* BUTTON ADMIN UNTUK TOGGLE FORM TAMBAH MENU */}
+            {isAdmin && (
+              <button 
+                onClick={() => setIsAddingMenu(!isAddingMenu)}
+                className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-lg font-black transition-transform active:scale-90 ${isAddingMenu ? 'bg-stone-500 rotate-45' : 'bg-[#7b1815]'}`}
+              >
+                +
+              </button>
+            )}
           </div>
 
+          {/* FORM ADMIN: FITUR TAMBAH MENU BARU */}
+          {isAdmin && isAddingMenu && (
+            <form onSubmit={handleTambahMenu} className="bg-white border border-amber-200/60 p-5 rounded-[24px] shadow-md space-y-3 animate-fadeIn text-xs">
+              <h4 className="font-black text-[#7b1815] uppercase text-[10px] tracking-wider border-b pb-1">➕ Tambah Menu Seduhan Baru</h4>
+              <div className="grid grid-cols-3 gap-2">
+                <input 
+                  type="text" 
+                  placeholder="Nama menu..." 
+                  value={namaMenuBaru}
+                  onChange={(e) => setNamaMenuBaru(e.target.value)}
+                  className="col-span-2 bg-stone-50 border border-stone-200 rounded-xl px-3 h-10"
+                  required
+                />
+                <input 
+                  type="number" 
+                  placeholder="Harga (K)..." 
+                  value={hargaMenuBaru}
+                  onChange={(e) => setHargaMenuBaru(e.target.value)}
+                  className="bg-stone-50 border border-stone-200 rounded-xl px-3 h-10 font-mono"
+                  required
+                />
+              </div>
+              <input 
+                type="text" 
+                placeholder="Deskripsi bahan/rasa singkat..." 
+                value={deskripsiMenuBaru}
+                onChange={(e) => setDeskripsiMenuBaru(e.target.value)}
+                className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3 h-10"
+              />
+              <button type="submit" className="w-full bg-emerald-600 text-white font-black text-[10px] uppercase tracking-widest py-2.5 rounded-xl shadow-sm">Masukkan ke Katalog</button>
+            </form>
+          )}
+
+          {/* LIST KATALOG SEDUHAN */}
           <div className="space-y-3">
             {menuItems.map((item) => (
               <div 
@@ -227,13 +304,13 @@ function Seduhan({ menuItems, setMenuItems, isAdmin }) {
                     : isAdmin ? 'cursor-default' : 'opacity-60 cursor-not-allowed'
                 }`}
               >
-                <div className="space-y-1 max-w-[70%]">
-                  <div className="flex items-center space-x-2">
+                <div className="space-y-1 max-w-[65%]">
+                  <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                     <span className="text-xs font-black text-stone-900 font-poppins">{item.name}</span>
                     {isAdmin ? (
                       <button 
                         onClick={(e) => handleToggleStatus(item.id, e)}
-                        className={`px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-wider border transition-all hover:scale-105 active:scale-95 ${
+                        className={`px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-wider border transition-all ${
                           item.status === 'Ready' 
                             ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600' 
                             : 'bg-rose-500/10 border-rose-500/20 text-rose-600'
@@ -253,13 +330,25 @@ function Seduhan({ menuItems, setMenuItems, isAdmin }) {
                   </div>
                   <p className="text-[10px] text-stone-500 leading-tight font-poppins">{item.desc}</p>
                 </div>
-                <span className={`font-mono font-bold text-xs px-3 py-1.5 rounded-xl border ${
-                  item.status === 'Ready' || isAdmin
-                    ? 'text-[#7b1815] bg-[#7b1815]/5 border-[#7b1815]/10'
-                    : 'text-stone-400 bg-stone-100 border-stone-200 line-through'
-                }`}>
-                  {item.price}K
-                </span>
+
+                <div className="flex items-center space-x-3 shrink-0">
+                  <span className="font-mono font-bold text-xs px-3 py-1.5 rounded-xl border text-[#7b1815] bg-[#7b1815]/5 border-[#7b1815]/10">
+                    {item.price}K
+                  </span>
+                  
+                  {/* BUTTON ADMIN: FITUR HAPUS MENU DARI KATALOG */}
+                  {isAdmin && (
+                    <button 
+                      onClick={(e) => handleHapusMenu(item.id, item.name, e)}
+                      className="p-2 text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors"
+                      title="Hapus Menu Permanen"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-11.5 0M10.5 8.25v10.5M14.5 8.25v10.5M4.5 6.25h15M7.5 6.25l1-2.5h7l1 2.5M16.5 6.25l-1 12.5a2 2 0 01-2 2h-5a2 2 0 01-2-2l-1-12.5" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>
@@ -385,7 +474,7 @@ function Seduhan({ menuItems, setMenuItems, isAdmin }) {
         </form>
       )}
 
-      {/* 3. LAYER INVOICE + LIVE REAl-TIME TRACKER INDIVIDUAL (TERKUNCI PER HP) */}
+      {/* 3. LAYER INVOICE + LIVE REAL-TIME TRACKER INDIVIDUAL */}
       {step === 'invoice' && currentOrder && !isAdmin && (
         <div className="space-y-4 animate-fadeIn">
           

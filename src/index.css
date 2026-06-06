@@ -5,6 +5,10 @@
   --color-broken-white: #fbf9f5;
   
   --font-serif: "Playfair Display", Georgia, serif;
+  
+  /* TAMBAHKAN DUA BARIS INI UNTUK TAILWIND v4 */
+  --radius-card: 24px;
+  --shadow-card: 0 10px 15px -3px rgba(214, 211, 209, 0.5);
 }
 
 body {
